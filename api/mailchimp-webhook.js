@@ -49,8 +49,8 @@ export default async function handler(req, res) {
 // 發送到 GA4 的函數
 async function sendToGA4(data) {
   // 請替換成你的實際值
-  const GA4_MEASUREMENT_ID = 'G-XXXXXXXXXX'; // 你的 GA4 Measurement ID
-  const GA4_API_SECRET = 'your-api-secret';   // 你的 API Secret
+  const GA4_MEASUREMENT_ID = 'G-475QR6J62K'; // 你的 GA4 Measurement ID
+  const GA4_API_SECRET = '9CPNecTzQVOHEhJCHky6tA';   // 你的 API Secret
   
   if (GA4_MEASUREMENT_ID === 'G-XXXXXXXXXX') {
     console.log('⚠️ Warning: Please update GA4_MEASUREMENT_ID and GA4_API_SECRET');
