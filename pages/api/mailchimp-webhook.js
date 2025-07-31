@@ -3,20 +3,21 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     return res.status(200).send('OK');
   }
-
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Only POST allowed' });
   }
 
+  // 先快速回 200 不阻塞 Mailchimp（避免超時）
+  res.status(200).json({ status: 'received', timestamp: new Date().toISOString() });
+
+  // non-blocking 處理（錯誤也不會影響已回的 response）
   try {
-    // 解析 body：Next.js pages route 會自動把 JSON 變成 req.body
+    // 解析 body（Next.js pages route：JSON 已在 req.body）
     let body = {};
     const contentType = req.headers['content-type'] || '';
-
     if (contentType.includes('application/json')) {
-      body = req.body; // 直接用 Next.js 解析好的
+      body = req.body;
     } else {
-      // fallback 解析 form-urlencoded 或 raw
       const text = await new Promise((resolve, reject) => {
         let data = '';
         req.on('data', chunk => (data += chunk));
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
       const listId = data.list_id || data.id || '';
       console.log('✅ New subscription detected', { email, listId });
 
-      // fire-and-forget
+      // 推到 GA4（fire-and-forget）
       sendToGA4({
         email,
         listId,
@@ -49,14 +50,12 @@ export default async function handler(req, res) {
     } else {
       console.log('ℹ️ Received non-subscribe event:', type);
     }
-
-    return res.status(200).json({ status: 'received', timestamp: new Date().toISOString() });
-  } catch (error) {
-    console.error('❌ Webhook error:', error);
-    return res.status(500).json({ error: 'internal error', message: error?.message || 'unknown' });
+  } catch (e) {
+    console.error('非同步處理錯誤', e);
   }
 }
 
+// 下面保持你之前的 sendToGA4 和 generateClientId（含 debug_mode 可選）
 async function sendToGA4({ email, listId, timestamp }) {
   const GA4_MEASUREMENT_ID = process.env.GA4_MEASUREMENT_ID;
   const GA4_API_SECRET = process.env.GA4_API_SECRET;
@@ -71,11 +70,10 @@ async function sendToGA4({ email, listId, timestamp }) {
     return false;
   }
 
-  const url = `https://www.google-analytics.com/mp/collect?measurement_id=${GA4_MEASUREMENT_ID}&api_secret=${GA4_API_SECRET}`;
   const clientId = generateClientId(email);
   const payload = {
     client_id: clientId,
-   // debug_mode:true,
+    // debug_mode: true, // 測試時可開，正式可以註解掉
     events: [
       {
         name: 'mailchimp_newsletter_signup',
@@ -92,17 +90,17 @@ async function sendToGA4({ email, listId, timestamp }) {
 
   console.log('📤 Sending to GA4 payload:', JSON.stringify(payload));
 
+  const url = `https://www.google-analytics.com/mp/collect?measurement_id=${process.env.GA4_MEASUREMENT_ID}&api_secret=${process.env.GA4_API_SECRET}`;
+
   try {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-
     console.log('GA4 response status:', resp.status);
     const respText = await resp.text();
     console.log('GA4 response body:', respText);
-
     if (!resp.ok) {
       console.error('GA4 API error:', resp.status, respText);
       return false;
@@ -113,7 +111,6 @@ async function sendToGA4({ email, listId, timestamp }) {
     return false;
   }
 }
-
 
 function generateClientId(email) {
   if (!email) return `unknown_${Date.now()}`;
