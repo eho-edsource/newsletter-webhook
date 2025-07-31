@@ -1,0 +1,10 @@
+{
+    "name": "newsletter-webhook",
+    "version": "1.0.0",
+    "description": "Mailchimp webhook handler for GA4 tracking",
+    "main": "api/mailchimp-webhook.js",
+    "scripts": {
+        "dev": "vercel dev"
+    },
+    "dependencies": {}
+}
