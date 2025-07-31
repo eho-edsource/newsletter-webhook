@@ -28,7 +28,6 @@ export default async function handler(req, res) {
     if (type.includes('subscribe')) {
       const email = data.email || data.email_address || '';
       const listId = data.list_id || data.id || '';
-
       console.log('✅ New subscription detected', { email, listId });
 
       sendToGA4({
@@ -42,20 +41,13 @@ export default async function handler(req, res) {
       console.log('ℹ️ Received non-subscribe event:', type);
     }
 
-    res.status(200).json({
-      status: 'received',
-      timestamp: new Date().toISOString()
-    });
+    res.status(200).json({ status: 'received', timestamp: new Date().toISOString() });
   } catch (error) {
     console.error('❌ Webhook error:', error);
-    res.status(500).json({
-      error: 'internal error',
-      message: error?.message || 'unknown'
-    });
+    res.status(500).json({ error: 'internal error', message: error?.message || 'unknown' });
   }
 }
 
-// 以下 sendToGA4 & generateClientId 跟之前一樣
 async function sendToGA4({ email, listId, timestamp }) {
   const GA4_MEASUREMENT_ID = process.env.GA4_MEASUREMENT_ID;
   const GA4_API_SECRET = process.env.GA4_API_SECRET;
@@ -89,7 +81,6 @@ async function sendToGA4({ email, listId, timestamp }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-
     console.log('GA4 response status:', resp.status);
     if (!resp.ok) {
       const txt = await resp.text();
