@@ -61,8 +61,13 @@ async function sendToGA4({ email, listId, timestamp }) {
   const GA4_MEASUREMENT_ID = process.env.GA4_MEASUREMENT_ID;
   const GA4_API_SECRET = process.env.GA4_API_SECRET;
 
+  console.log('🔍 Env vars present:', {
+    GA4_MEASUREMENT_ID: !!GA4_MEASUREMENT_ID,
+    GA4_API_SECRET: !!GA4_API_SECRET
+  });
+
   if (!GA4_MEASUREMENT_ID || !GA4_API_SECRET) {
-    console.warn('⚠️ Missing GA4 env vars');
+    console.warn('⚠️ Missing GA4 env vars, aborting send');
     return false;
   }
 
@@ -84,6 +89,8 @@ async function sendToGA4({ email, listId, timestamp }) {
     ]
   };
 
+  console.log('📤 Sending to GA4 payload:', JSON.stringify(payload));
+
   try {
     const resp = await fetch(url, {
       method: 'POST',
@@ -92,9 +99,11 @@ async function sendToGA4({ email, listId, timestamp }) {
     });
 
     console.log('GA4 response status:', resp.status);
+    const respText = await resp.text();
+    console.log('GA4 response body:', respText);
+
     if (!resp.ok) {
-      const txt = await resp.text();
-      console.error('GA4 API error:', resp.status, txt);
+      console.error('GA4 API error:', resp.status, respText);
       return false;
     }
     return true;
@@ -103,6 +112,7 @@ async function sendToGA4({ email, listId, timestamp }) {
     return false;
   }
 }
+
 
 function generateClientId(email) {
   if (!email) return `unknown_${Date.now()}`;
