@@ -9,12 +9,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    let body;
+    // 解析 body：Next.js pages route 會自動把 JSON 變成 req.body
+    let body = {};
     const contentType = req.headers['content-type'] || '';
+
     if (contentType.includes('application/json')) {
-      body = await req.json();
+      body = req.body; // 直接用 Next.js 解析好的
     } else {
-      const text = await req.text();
+      // fallback 解析 form-urlencoded 或 raw
+      const text = await new Promise((resolve, reject) => {
+        let data = '';
+        req.on('data', chunk => (data += chunk));
+        req.on('end', () => resolve(data));
+        req.on('error', err => reject(err));
+      });
       body = Object.fromEntries(new URLSearchParams(text));
     }
 
@@ -22,7 +30,7 @@ export default async function handler(req, res) {
     console.log('Headers:', req.headers);
     console.log('Parsed Body:', body);
 
-    const type = (body.type || body.event || '').toLowerCase();
+    const type = (body.type || body.event || '').toString().toLowerCase();
     const data = body.data || {};
 
     if (type.includes('subscribe')) {
@@ -30,6 +38,7 @@ export default async function handler(req, res) {
       const listId = data.list_id || data.id || '';
       console.log('✅ New subscription detected', { email, listId });
 
+      // fire-and-forget
       sendToGA4({
         email,
         listId,
@@ -41,10 +50,10 @@ export default async function handler(req, res) {
       console.log('ℹ️ Received non-subscribe event:', type);
     }
 
-    res.status(200).json({ status: 'received', timestamp: new Date().toISOString() });
+    return res.status(200).json({ status: 'received', timestamp: new Date().toISOString() });
   } catch (error) {
     console.error('❌ Webhook error:', error);
-    res.status(500).json({ error: 'internal error', message: error?.message || 'unknown' });
+    return res.status(500).json({ error: 'internal error', message: error?.message || 'unknown' });
   }
 }
 
@@ -81,6 +90,7 @@ async function sendToGA4({ email, listId, timestamp }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+
     console.log('GA4 response status:', resp.status);
     if (!resp.ok) {
       const txt = await resp.text();
