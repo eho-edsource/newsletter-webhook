@@ -75,6 +75,7 @@ async function sendToGA4({ email, listId, timestamp }) {
   const clientId = generateClientId(email);
   const payload = {
     client_id: clientId,
+    debug_mode:true,
     events: [
       {
         name: 'mailchimp_newsletter_signup',
