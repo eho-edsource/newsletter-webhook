@@ -1,91 +1,78 @@
 // pages/api/mailchimp-webhook.js
 export default async function handler(req, res) {
+  const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
   if (req.method === 'GET') {
     return res.status(200).send('OK');
   }
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Only POST allowed' });
+    return res.status(405).json({ message: 'Only POST allowed', requestId });
   }
 
-  // 先快速回 200 避免超時
-  res.status(200).json({ status: 'received', timestamp: new Date().toISOString() });
+  // 先回 200 避免 webhook 超時
+  res.status(200).json({ status: 'received', timestamp: new Date().toISOString(), requestId });
 
   try {
     let body = {};
-    const contentType = req.headers['content-type'] || '';
-
+    const contentType = (req.headers['content-type'] || '').toLowerCase();
     if (contentType.includes('application/json')) {
       body = req.body;
     } else {
-      // 解析 form-urlencoded raw body
-      const text = await new Promise((resolve, reject) => {
+      const raw = await new Promise((resolve, reject) => {
         let data = '';
         req.on('data', chunk => (data += chunk));
         req.on('end', () => resolve(data));
         req.on('error', err => reject(err));
       });
-
-      // 轉成 key/value，再把 nested data[...] 展開成物件
-      const params = new URLSearchParams(text);
+      const params = new URLSearchParams(raw);
       body = expandNested(params);
     }
 
-    console.log('=== Mailchimp Webhook Received ===');
-    console.log('Parsed Body:', JSON.stringify(body));
+    console.log('[handler]', requestId, 'Parsed Body:', JSON.stringify(body));
 
     const type = (body.type || '').toString().toLowerCase();
     const data = body.data || {};
+    const listId = body.list_id || data.list_id || '';
+    const email = (data.email || data.email_address || '').toString();
 
     if (type.includes('subscribe')) {
-      const email = data.email || data.email_address || '';
-      const listId = body.list_id || data.list_id || '';
-      console.log('✅ New subscription detected', { email, listId });
+      const eventId = generateEventId(email, listId);
+      console.log('[handler]', requestId, '✅ New subscription', { email, listId, eventId });
 
-      // fire-and-forget 推到 GA4
-      sendToGA4({
+      const ga4Result = await sendToGA4({
         email,
         listId,
-        timestamp: new Date().toISOString()
-      }).then(success => {
-        console.log('GA4 tracking result:', success ? 'Success' : 'Failed');
+        timestamp: new Date().toISOString(),
+        eventId
       });
+
+      console.log('[handler]', requestId, 'GA4 tracking result:', ga4Result ? 'Success' : 'Failed');
     } else {
-      console.log('ℹ️ Received non-subscribe event:', type);
+      console.log('[handler]', requestId, 'ℹ️ Non-subscribe event:', type);
     }
-  } catch (e) {
-    console.error('非同步處理錯誤', e);
+  } catch (err) {
+    console.error('[handler]', requestId, 'Processing error:', err);
   }
 }
 
-/**
- * 將 form-urlencoded 裡像 data[merges][EMAIL]=... 的 nested key 展開成巢狀物件
- */
 function expandNested(params) {
   const obj = {};
-
   for (const [rawKey, value] of params.entries()) {
-    // 例如 rawKey: data[merges][EMAIL]
-    const path = rawKey
-      .replace(/\]/g, '')
-      .split('['); // ["data", "merges", "EMAIL"]
+    const path = rawKey.replace(/\]/g, '').split('[');
     let curr = obj;
     for (let i = 0; i < path.length; i++) {
       const key = path[i];
       if (i === path.length - 1) {
-        // 最後一層賦值
-        curr[key] = parsePotentialJSON(value) || value;
+        curr[key] = tryParseJSON(value) ?? value;
       } else {
         if (!curr[key]) curr[key] = {};
         curr = curr[key];
       }
     }
   }
-
   return obj;
 }
-
-// 嘗試 parse JSON 字串（某些欄位可能是 JSON encoded）
-function parsePotentialJSON(str) {
+function tryParseJSON(str) {
   try {
     return JSON.parse(str);
   } catch {
@@ -93,28 +80,27 @@ function parsePotentialJSON(str) {
   }
 }
 
-// sendToGA4 & generateClientId 保留你原本的邏輯（略過這段同前面）
-async function sendToGA4({ email, listId, timestamp }) {
+async function sendToGA4({ email, listId, timestamp, eventId }) {
   const GA4_MEASUREMENT_ID = process.env.GA4_MEASUREMENT_ID;
   const GA4_API_SECRET = process.env.GA4_API_SECRET;
 
-  console.log('🔍 Env vars present:', {
+  console.log('[sendToGA4] Env vars present:', {
     GA4_MEASUREMENT_ID: !!GA4_MEASUREMENT_ID,
     GA4_API_SECRET: !!GA4_API_SECRET
   });
 
   if (!GA4_MEASUREMENT_ID || !GA4_API_SECRET) {
-    console.warn('⚠️ Missing GA4 env vars, aborting send');
+    console.warn('[sendToGA4] Missing GA4 credentials');
     return false;
   }
 
   const clientId = generateClientId(email);
   const payload = {
     client_id: clientId,
-    // debug_mode: true, // 測試時打開
     events: [
       {
-        name: 'mailchimp_newsletter_signup',
+        name: 'mc_newsletter_signup',
+        event_id: eventId,
         params: {
           source: 'mailchimp',
           method: 'webhook',
@@ -126,27 +112,52 @@ async function sendToGA4({ email, listId, timestamp }) {
     ]
   };
 
-  console.log('📤 Sending to GA4 payload:', JSON.stringify(payload));
-
   const url = `https://www.google-analytics.com/mp/collect?measurement_id=${GA4_MEASUREMENT_ID}&api_secret=${GA4_API_SECRET}`;
-  try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    console.log('GA4 response status:', resp.status);
-    const respText = await resp.text();
-    console.log('GA4 response body:', respText);
-    if (!resp.ok) {
-      console.error('GA4 API error:', resp.status, respText);
-      return false;
+  const bodyStr = JSON.stringify(payload);
+
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (attempt > 1) {
+      const backoff = 500 * attempt;
+      console.log(`[sendToGA4] Retry attempt ${attempt}, waiting ${backoff}ms`);
+      await new Promise(r => setTimeout(r, backoff));
     }
-    return true;
-  } catch (e) {
-    console.error('Error sending to GA4:', e);
-    return false;
+
+    try {
+      const controller = new AbortController();
+      const timeoutMs = 5000;
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      console.log('[sendToGA4] Sending payload attempt', attempt, payload);
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyStr,
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+
+      console.log('[sendToGA4] GA4 response status:', resp.status);
+      const respText = await resp.text();
+      console.log('[sendToGA4] GA4 response body:', respText);
+
+      if (resp.ok || resp.status === 204) {
+        return true;
+      }
+      if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) {
+        console.error('[sendToGA4] Non-retryable error', resp.status);
+        break;
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        console.warn('[sendToGA4] Request timed out');
+      } else {
+        console.warn('[sendToGA4] Error sending to GA4:', e);
+      }
+    }
   }
+
+  return false;
 }
 
 function generateClientId(email) {
@@ -158,4 +169,15 @@ function generateClientId(email) {
     hash |= 0;
   }
   return 'mc_' + Math.abs(hash);
+}
+
+function generateEventId(email, listId) {
+  const base = `${email || 'unknown'}:${listId || 'unknown'}`;
+  let hash = 0;
+  for (let i = 0; i < base.length; i++) {
+    const chr = base.charCodeAt(i);
+    hash = (hash << 5) - hash + chr;
+    hash |= 0;
+  }
+  return 'mc_evt_' + Math.abs(hash);
 }
