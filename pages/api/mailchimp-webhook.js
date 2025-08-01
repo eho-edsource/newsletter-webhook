@@ -1,6 +1,15 @@
 import crypto from "crypto";
 
 export default async function handler(req, res) {
+  if (req.method === "GET") {
+    return res.status(200).send("ok"); // health check / Mailchimp UI ping
+  }
+  if (req.method === "OPTIONS") {
+    // optional: CORS preflight support
+    res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    return res.status(204).send("");
+  }
   if (req.method !== "POST") {
     return res.status(405).send("Only POST allowed");
   }
@@ -16,18 +25,15 @@ export default async function handler(req, res) {
     const email = body?.data?.email;
     if (!email) return res.status(400).send("missing email");
 
-    // user_id 用 email sha256（小寫 trim）
     const emailHash = crypto
       .createHash("sha256")
       .update(email.trim().toLowerCase())
       .digest("hex");
 
-    // 產生 client_id（隨機）
     const clientId = `${Math.floor(Math.random() * 1e9)}.${Math.floor(
       Math.random() * 1e9
     )}`;
 
-    // 簡單去重（30 秒內同一 email_hash 跳過）
     const recent = global.__recent_subscribes__ || (global.__recent_subscribes__ = new Map());
     const now = Date.now();
     if (recent.has(emailHash) && now - recent.get(emailHash) < 30000) {
@@ -35,7 +41,6 @@ export default async function handler(req, res) {
     }
     recent.set(emailHash, now);
 
-    // 組 GA4 Measurement Protocol payload
     const payload = {
       client_id: clientId,
       user_id: emailHash,
@@ -46,7 +51,6 @@ export default async function handler(req, res) {
             source: "mailchimp",
             email_hash: emailHash,
             list_id: body?.data?.list_id || "",
-            // debug_mode: true, // 開發時可以打開
           },
         },
       ],
@@ -60,7 +64,6 @@ export default async function handler(req, res) {
     }
 
     const url = `https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
-
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
