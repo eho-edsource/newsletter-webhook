@@ -49,9 +49,9 @@ export default async function handler(req, res) {
       .digest("hex");
 
     // 產生 client_id（隨機）
-    const clientId = ${Math.floor(Math.random() * 1e9)}.${Math.floor(
+    const clientId = `${Math.floor(Math.random() * 1e9)}.${Math.floor(
       Math.random() * 1e9
-    )};
+    )}`;
 
     // 去重（30 秒內同一 email_hash 跳過）
     const recent = global.__recent_subscribes__ || (global.__recent_subscribes__ = new Map());
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
       return res.status(500).send("GA4 config missing");
     }
 
-    const url = https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret};
+    const url = `https://www.google-analytics.com/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
