@@ -43,6 +43,7 @@ export default async function handler(req, res) {
     console.log('🔍 event type:', type, 'data:', data);
 
     if (type.includes('subscribe')) {
+      console.log('🛠 entering subscribe branch', { type, body });
       const email = data.email || data.email_address || '';
       const listId = body.list_id || data.list_id || '';
       console.log('✅ New subscription detected', { email, listId });
