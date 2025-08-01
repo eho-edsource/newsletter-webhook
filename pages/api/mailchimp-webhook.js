@@ -13,14 +13,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Only POST allowed', requestId });
   }
 
-  // 先回 200 避免 Mailchimp timeout
-  res.status(200).json({ status: 'received', timestamp: new Date().toISOString(), requestId });
-  console.log('➡ Handling POST, responded 200 immediately');
-
+  let body = {};
   try {
     console.log('📦 begin parsing body');
 
-    let body = {};
     const contentType = (req.headers['content-type'] || '').toLowerCase();
     console.log('📌 content-type:', contentType);
 
@@ -45,11 +41,14 @@ export default async function handler(req, res) {
     console.log('🔍 event type:', type, 'extracted data:', data);
 
     if (type.includes('subscribe')) {
-      console.log('🛠 entering subscribe branch', { type, body });
+      console.log('🛠 entering subscribe branch', { type });
 
       const email = (data.email || data.email_address || '').toString();
       const listId = (body.list_id || data.list_id || '').toString();
       console.log('✅ New subscription detected', { email, listId });
+
+      // 先回 200，再做外部 call
+      res.status(200).json({ status: 'received', requestId, timestamp: new Date().toISOString() });
 
       const eventId = generateEventId(email, listId);
       const ga4Result = await sendToGA4({
@@ -58,17 +57,22 @@ export default async function handler(req, res) {
         timestamp: new Date().toISOString(),
         eventId
       });
-
       console.log('[handler]', requestId, 'GA4 tracking result:', ga4Result ? 'Success' : 'Failed');
+      return;
     } else {
       console.log('ℹ️ Non-subscribe event:', type);
     }
   } catch (err) {
     console.error('[handler]', requestId, 'Processing error:', err);
+    // 失敗也回 200 給 Mailchimp 防止重試風暴（但可以考慮 alert）
+    res.status(200).json({ status: 'error', requestId, message: err.message });
+    return;
   }
+
+  // 如果不是 subscribe 也回 200
+  res.status(200).json({ status: 'ignored', requestId });
 }
 
-/** 展開 nested form-urlencoded 例如 data[merges][EMAIL]=... */
 function expandNested(params) {
   const obj = {};
   for (const [rawKey, value] of params.entries()) {
