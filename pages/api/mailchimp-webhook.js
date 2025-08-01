@@ -17,6 +17,15 @@ function extractMailchimpId(body) {
   return body?.data?.id || body["data[id]"] || "";
 }
 
+function extractMergeValue(body, key) {
+  return (
+    body?.data?.merges?.[key] ||
+    body[`data[merges][${key}]`] || 
+    ""
+  );
+}
+
+
 export default async function handler(req, res) {
   if (req.method === "GET") return res.status(200).send("ok");
 
@@ -69,6 +78,10 @@ export default async function handler(req, res) {
             email_hash: emailHash,
             list_id: list_id,
             id: mailchimp_id // ✅ 顯示在 GA4 的 params.id
+              email: email, // ✅ 明文 email，僅供測試用，若日後要上 production 建議移除或 hash
+              company: extractMergeValue(body, "COMPANY"),
+              job_title: extractMergeValue(body, "JOBTITLE"),
+              interests: extractMergeValue(body, "INTERESTS"),
           },
         },
       ],
