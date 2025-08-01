@@ -1,7 +1,6 @@
 // pages/api/mailchimp-webhook.js
 export default async function handler(req, res) {
   const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
   console.log('🔥 webhook invoked', { method: req.method, url: req.url });
 
   if (req.method === 'GET') {
@@ -16,7 +15,6 @@ export default async function handler(req, res) {
   let body = {};
   try {
     console.log('📦 begin parsing body');
-
     const contentType = (req.headers['content-type'] || '').toLowerCase();
     console.log('📌 content-type:', contentType);
 
@@ -47,29 +45,33 @@ export default async function handler(req, res) {
       const listId = (body.list_id || data.list_id || '').toString();
       console.log('✅ New subscription detected', { email, listId });
 
-      // 先回 200，再做外部 call
+      // 先回 200 給 webhook 發送者
       res.status(200).json({ status: 'received', requestId, timestamp: new Date().toISOString() });
 
+      // fire-and-forget: background 傳到 GA4
       const eventId = generateEventId(email, listId);
-      const ga4Result = await sendToGA4({
-        email,
-        listId,
-        timestamp: new Date().toISOString(),
-        eventId
+      setImmediate(() => {
+        sendToGA4({
+          email,
+          listId,
+          timestamp: new Date().toISOString(),
+          eventId
+        })
+          .then(success => console.log('[handler]', requestId, 'GA4 tracking result:', success ? 'Success' : 'Failed'))
+          .catch(err => console.warn('[handler]', requestId, 'Unexpected sendToGA4 error', err));
       });
-      console.log('[handler]', requestId, 'GA4 tracking result:', ga4Result ? 'Success' : 'Failed');
       return;
     } else {
       console.log('ℹ️ Non-subscribe event:', type);
     }
   } catch (err) {
     console.error('[handler]', requestId, 'Processing error:', err);
-    // 失敗也回 200 給 Mailchimp 防止重試風暴（但可以考慮 alert）
+    // 回 200 避免 webhook 重試暴增
     res.status(200).json({ status: 'error', requestId, message: err.message });
     return;
   }
 
-  // 如果不是 subscribe 也回 200
+  // 非 subscribe 也回 200（但標記忽略）
   res.status(200).json({ status: 'ignored', requestId });
 }
 
