@@ -77,8 +77,8 @@ export default async function handler(req, res) {
             source: "mailchimp",
             email_hash: emailHash,
             list_id: list_id,
-            id: mailchimp_id, // ✅ 顯示在 GA4 的 params.id
-            email: email, // ✅ 明文 email，僅供測試用，若日後要上 production 建議移除或 hash
+            id: mailchimp_id, 
+            email: email, 
             company: extractMergeValue(body, "COMPANY"),
             job_title: extractMergeValue(body, "JOBTITLE"),
             interests: extractMergeValue(body, "INTERESTS"),
