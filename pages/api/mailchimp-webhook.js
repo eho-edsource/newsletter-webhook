@@ -66,8 +66,8 @@ function tryParseJSON(str) {
 }
 
 async function sendToGA4({ email, listId, timestamp, eventId }) {
-  const GA4_MEASUREMENT_ID = process.env.GA4_MEASUREMENT_ID;
-  const GA4_API_SECRET = process.env.GA4_API_SECRET;
+  const GA4_MEASUREMENT_ID = 'G-475QR6J62K'; // 你的 GA4 Measurement ID 
+  const GA4_API_SECRET = '9CPNecTzQVOHEhJCHky6tA'; // 你的 API Secret
 
   console.log('[sendToGA4] Env vars present:', {
     GA4_MEASUREMENT_ID: !!GA4_MEASUREMENT_ID,
