@@ -4,74 +4,75 @@ export default async function handler(req, res) {
   console.log('🔥 webhook invoked', { method: req.method, url: req.url });
 
   if (req.method === 'GET') {
-    console.log('➡ GET ping');
     return res.status(200).send('OK');
   }
   if (req.method !== 'POST') {
-    console.log('⚠️ wrong method', req.method);
     return res.status(405).json({ message: 'Only POST allowed', requestId });
   }
 
+  // 1. 解析 body（加個上限避免卡太久）
   let body = {};
   try {
-    console.log('📦 begin parsing body');
     const contentType = (req.headers['content-type'] || '').toLowerCase();
-    console.log('📌 content-type:', contentType);
+    console.log('[handler]', requestId, 'content-type:', contentType);
 
-    if (contentType.includes('application/json')) {
-      body = req.body;
-      console.log('📥 parsed JSON body:', body);
-    } else {
-      const raw = await new Promise((resolve, reject) => {
-        let data = '';
-        req.on('data', chunk => (data += chunk));
-        req.on('end', () => resolve(data));
-        req.on('error', err => reject(err));
-      });
-      console.log('📥 raw body string:', raw);
-      const params = new URLSearchParams(raw);
-      body = expandNested(params);
-      console.log('📥 expanded form body:', body);
-    }
+    const parseBody = async () => {
+      if (contentType.includes('application/json')) {
+        console.log('[handler]', requestId, 'parsed as JSON');
+        return req.body;
+      } else {
+        const raw = await new Promise((resolve, reject) => {
+          let data = '';
+          req.on('data', chunk => (data += chunk));
+          req.on('end', () => resolve(data));
+          req.on('error', err => reject(err));
+        });
+        console.log('[handler]', requestId, 'raw body string:', raw);
+        const params = new URLSearchParams(raw);
+        const expanded = expandNested(params);
+        console.log('[handler]', requestId, 'expanded form body:', expanded);
+        return expanded;
+      }
+    };
 
-    const type = (body.type || '').toString().toLowerCase();
-    const data = body.data || {};
-    console.log('🔍 event type:', type, 'extracted data:', data);
-
-    if (type.includes('subscribe')) {
-      console.log('🛠 entering subscribe branch', { type });
-
-      const email = (data.email || data.email_address || '').toString();
-      const listId = (body.list_id || data.list_id || '').toString();
-      console.log('✅ New subscription detected', { email, listId });
-
-      // 先回 200 給 webhook 發送者
-      res.status(200).json({ status: 'received', requestId, timestamp: new Date().toISOString() });
-
-      // fire-and-forget: background 傳到 GA4
-      const eventId = generateEventId(email, listId);
-      setImmediate(() => {
-        sendToGA4({
-          email,
-          listId,
-          timestamp: new Date().toISOString(),
-          eventId
-        })
-          .then(success => console.log('[handler]', requestId, 'GA4 tracking result:', success ? 'Success' : 'Failed'))
-          .catch(err => console.warn('[handler]', requestId, 'Unexpected sendToGA4 error', err));
-      });
-      return;
-    } else {
-      console.log('ℹ️ Non-subscribe event:', type);
-    }
+    // 2秒上限
+    body = await Promise.race([
+      parseBody(),
+      new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 2000))
+    ]);
   } catch (err) {
-    console.error('[handler]', requestId, 'Processing error:', err);
-    // 回 200 避免 webhook 重試暴增
-    res.status(200).json({ status: 'error', requestId, message: err.message });
+    console.warn('[handler]', requestId, 'body parse failed or timed out', err);
+    body = {}; // fallback
+  }
+
+  const type = (body.type || '').toString().toLowerCase();
+  const data = body.data || {};
+  console.log('[handler]', requestId, 'event type:', type, 'data snapshot:', data);
+
+  if (type.includes('subscribe')) {
+    const email = (data.email || data.email_address || '').toString();
+    const listId = (body.list_id || data.list_id || '').toString();
+    console.log('[handler]', requestId, '✅ New subscription detected', { email, listId });
+
+    // 立刻回 200 給 webhook sender（non-blocking）
+    res.status(200).json({ status: 'received', requestId, timestamp: new Date().toISOString() });
+
+    // fire-and-forget GA4 call
+    const eventId = generateEventId(email, listId);
+    setImmediate(() => {
+      sendToGA4({
+        email,
+        listId,
+        timestamp: new Date().toISOString(),
+        eventId
+      })
+        .then(success => console.log('[handler]', requestId, 'GA4 tracking result:', success ? 'Success' : 'Failed'))
+        .catch(e => console.warn('[handler]', requestId, 'sendToGA4 unexpected error', e));
+    });
     return;
   }
 
-  // 非 subscribe 也回 200（但標記忽略）
+  // 非 subscribe 也回 200，但標記 ignored
   res.status(200).json({ status: 'ignored', requestId });
 }
 
