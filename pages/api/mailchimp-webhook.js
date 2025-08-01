@@ -8,7 +8,7 @@ export const config = {
 
 export default async function handler(req, res) {
   const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  console.log('🔥🔥 webhook invoked', { method: req.method, url: req.url, requestId });
+  console.log('🔥 webhook invoked', { method: req.method, url: req.url, requestId });
 
   if (req.method === 'GET') {
     return res.status(200).send('OK');
@@ -84,7 +84,7 @@ async function sendToGA4({ email, listId, timestamp, eventId }) {
     client_id: clientId,
     events: [
       {
-        name: 'mchimp_newsletter_signup',
+        name: 'mailchimp_newsletter_signup',
         event_id: eventId,
         params: {
           source: 'mailchimp',
@@ -108,7 +108,7 @@ async function sendToGA4({ email, listId, timestamp, eventId }) {
     }
     try {
       const controller = new AbortController();
-      const timeoutMs = 5000;
+      const timeoutMs = 10000;
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       console.log('[sendToGA4] Sending payload attempt', attempt, payload);
